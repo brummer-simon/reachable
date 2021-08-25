@@ -1,0 +1,10 @@
+[package]
+name = "async_usage"
+version = "0.1.0"
+edition = "2021"
+authors = ["Simon Brummer <simon.brummer@posteo.de>"]
+license = "MPL-2.0"
+description = "Example: async usage of reachable"
+
+[dependencies]
+reachable = {path = "../..", features = ["async"]}

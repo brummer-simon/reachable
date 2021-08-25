@@ -1,20 +1,10 @@
-# reachable
-
-Rust crate to check if a "Target" is available. The crate comes with the trait
-"Target" and ICMP/TCP based implementations of it. Additionally, the crate offers
-an async task Executor to perform availability checks of "Targets" on a regular basis.
-
-## Usage
-
-With this crate you can easily check if a computer is currently reachable over the network.
-Since all targets are implementations of trait "Target" the entire behavior is customizable.
-For example, it is easy to implement a custom Target to check if a Process is
-running or not.
-
-## Example (from examples/async_usage/src/main.rs)
-
-```rust
 use std::str::FromStr;
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+//
+// Author: Simon Brummer (simon.brummer@posteo.de)
+
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -44,4 +34,3 @@ fn main() {
     sleep(Duration::from_secs(3));
     exec.stop();
 }
-```
