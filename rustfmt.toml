@@ -1,0 +1,5 @@
+edition = "2018"
+max_width = 120
+reorder_imports = true
+group_imports = "StdExternalCrate"
+struct_lit_single_line = false
