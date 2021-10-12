@@ -1,164 +1,575 @@
-use dns_lookup::lookup_host;
-use std::net::IpAddr;
+use std::convert::From;
+use std::fmt::{self};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6, TcpStream};
+use std::num::ParseIntError;
+use std::process::{Command, Stdio};
+use std::str::FromStr;
+use std::time::Duration;
 
-#[derive(Clone)]
-pub enum Target {
-    Icmp(String),
-    IcmpOnIpv4(String),
-    IcmpOnIpv6(String),
-    Tcp(String, u16),
-    TcpOnIpv4(String, u16),
-    TcpOnIpv6(String, u16),
+#[cfg(test)]
+use mockall::automock;
+
+use crate::ResolvePolicy;
+use crate::{CheckTargetError, ParseTargetError};
+
+// Constants
+const DEFAULT_CONNECTION_TIMEOUT: Duration = Duration::from_secs(5);
+
+// Target trait
+#[cfg_attr(test, automock)]
+pub trait Target {
+    fn get_id(&self) -> String;
+    fn check_availability(&self) -> Result<Status, CheckTargetError>;
 }
 
-impl Target {
-    pub fn resolve(&self) -> Option<Vec<IpAddr>> {
-        let mut ips = match lookup_host(self.get_fqhn()) {
-            Ok(ips) => ips,
-            Err(_) => return None,
+// Status
+#[derive(PartialEq, Debug, Clone)]
+pub enum Status {
+    /// Target availability is unknown
+    Unknown,
+    /// Target is currently available
+    Available,
+    /// Target is currently not available
+    NotAvailable,
+}
+
+impl fmt::Display for Status {
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Status::Unknown => write!(formatter, "unknown"),
+            Status::Available => write!(formatter, "available"),
+            Status::NotAvailable => write!(formatter, "not available"),
+        }
+    }
+}
+
+// Aliases
+pub type Fqhn = String;
+pub type Port = u16;
+
+// IcmpTarget
+#[derive(Debug)]
+pub struct IcmpTarget {
+    fqhn: Fqhn,
+    resolve_policy: ResolvePolicy,
+}
+
+impl IcmpTarget {
+    pub fn new(fqhn: Fqhn, resolve_policy: ResolvePolicy) -> Self {
+        IcmpTarget {
+            fqhn: fqhn,
+            resolve_policy: resolve_policy,
+        }
+    }
+
+    pub fn set_resolve_policy(mut self, resolve_policy: ResolvePolicy) -> Self {
+        self.resolve_policy = resolve_policy;
+        self
+    }
+
+    pub fn get_fqhn(&self) -> &Fqhn {
+        &self.fqhn
+    }
+
+    pub fn get_resolve_policy(&self) -> &ResolvePolicy {
+        &self.resolve_policy
+    }
+}
+
+impl Target for IcmpTarget {
+    fn get_id(&self) -> String {
+        String::from(self.get_fqhn())
+    }
+
+    fn check_availability(&self) -> Result<Status, CheckTargetError> {
+        // Note: Spawn Ping to check if an ICMP target is available.
+        // Using ping seems to be the easiest way to send ICMP packets without root privileges
+        let available_via_ping = |addr: IpAddr| {
+            if addr.is_ipv6() {
+                Command::new("ping")
+                    .stdout(Stdio::null())
+                    .arg("-c 1")
+                    .arg("-6")
+                    .arg(addr.to_string())
+                    .status()
+                    .unwrap()
+                    .success()
+            } else {
+                Command::new("ping")
+                    .stdout(Stdio::null())
+                    .arg("-c 1")
+                    .arg(addr.to_string())
+                    .status()
+                    .unwrap()
+                    .success()
+            }
         };
 
-        ips = match &self {
-            Target::IcmpOnIpv4(_) | Target::TcpOnIpv4(_, _) => {
-                ips.into_iter().filter(|ip| ip.is_ipv4()).collect()
-            }
-
-            Target::IcmpOnIpv6(_) | Target::TcpOnIpv6(_, _) => {
-                ips.into_iter().filter(|ip| ip.is_ipv6()).collect()
-            }
-
-            _ => ips,
-        };
-
-        if !ips.is_empty() {
-            Some(ips)
+        let addrs = self.resolve_policy.resolve(&self.fqhn)?;
+        if addrs.into_iter().any(available_via_ping) {
+            Ok(Status::Available)
         } else {
-            None
+            Ok(Status::NotAvailable)
+        }
+    }
+}
+
+impl From<IpAddr> for IcmpTarget {
+    fn from(addr: IpAddr) -> Self {
+        IcmpTarget::new(addr.to_string(), ResolvePolicy::Agnostic)
+    }
+}
+
+impl From<Ipv4Addr> for IcmpTarget {
+    fn from(addr: Ipv4Addr) -> Self {
+        IcmpTarget::new(addr.to_string(), ResolvePolicy::ResolveToIPv4)
+    }
+}
+
+impl From<Ipv6Addr> for IcmpTarget {
+    fn from(addr: Ipv6Addr) -> Self {
+        IcmpTarget::new(addr.to_string(), ResolvePolicy::ResolveToIPv6)
+    }
+}
+
+impl FromStr for IcmpTarget {
+    type Err = ParseTargetError;
+
+    fn from_str(s: &str) -> Result<IcmpTarget, Self::Err> {
+        if s.is_empty() {
+            Err(ParseTargetError::from("No FQHN found"))
+        } else {
+            Ok(IcmpTarget::new(String::from(s), ResolvePolicy::Agnostic))
+        }
+    }
+}
+
+// TcpTarget
+#[derive(Debug)]
+pub struct TcpTarget {
+    fqhn: Fqhn,
+    port: Port,
+    connect_timeout: Duration,
+    resolve_policy: ResolvePolicy,
+}
+
+impl TcpTarget {
+    pub fn new(fqhn: Fqhn, port: Port, connect_timeout: Duration, resolve_policy: ResolvePolicy) -> Self {
+        TcpTarget {
+            fqhn: fqhn,
+            port: port,
+            connect_timeout: connect_timeout,
+            resolve_policy: resolve_policy,
         }
     }
 
-    pub fn get_fqhn(&self) -> &String {
-        match self {
-            Target::Icmp(fqhn)
-            | Target::IcmpOnIpv4(fqhn)
-            | Target::IcmpOnIpv6(fqhn)
-            | Target::Tcp(fqhn, _)
-            | Target::TcpOnIpv4(fqhn, _)
-            | Target::TcpOnIpv6(fqhn, _) => fqhn,
-        }
+    pub fn set_resolve_policy(mut self, resolve_policy: ResolvePolicy) -> Self {
+        self.resolve_policy = resolve_policy;
+        self
     }
 
-    pub fn get_port(&self) -> Option<u16> {
-        match self {
-            Target::Tcp(_, port) | Target::TcpOnIpv4(_, port) | Target::TcpOnIpv6(_, port) => {
-                Some(*port)
+    pub fn set_connect_timeout(mut self, connect_timeout: Duration) -> Self {
+        self.connect_timeout = connect_timeout;
+        self
+    }
+
+    pub fn get_fqhn(&self) -> &Fqhn {
+        &self.fqhn
+    }
+
+    pub fn get_portnumber(&self) -> &Port {
+        &self.port
+    }
+
+    pub fn get_connect_timeout(&self) -> &Duration {
+        &self.connect_timeout
+    }
+
+    pub fn get_resolve_policy(&self) -> &ResolvePolicy {
+        &self.resolve_policy
+    }
+}
+
+impl Target for TcpTarget {
+    fn get_id(&self) -> String {
+        format!("{}:{}", self.get_fqhn(), self.get_portnumber())
+    }
+
+    fn check_availability(&self) -> Result<Status, CheckTargetError> {
+        // Check TCP availability: Try to establish a connection with the given Target.
+        // If the connection was established, tear it down immediately. All standard
+        // Network services should be able to deal with this behavior.
+
+        // Resolve and construct address/port pairs
+        let addrs = self.resolve_policy.resolve(&self.fqhn)?;
+        let sock_addrs: Vec<SocketAddr> = addrs
+            .into_iter()
+            .map(|addr| SocketAddr::from((addr, self.port)))
+            .collect();
+
+        // Try for each address/port pair to establish a connection.
+        // Occurring errors are treated as a sign of target is not available.
+        let available = sock_addrs
+            .into_iter()
+            .any(|addr| TcpStream::connect_timeout(&addr, self.connect_timeout).is_ok());
+
+        if available {
+            Ok(Status::Available)
+        } else {
+            Ok(Status::NotAvailable)
+        }
+    }
+}
+
+impl From<SocketAddr> for TcpTarget {
+    fn from(socket: SocketAddr) -> Self {
+        TcpTarget::new(
+            socket.ip().to_string(),
+            socket.port(),
+            DEFAULT_CONNECTION_TIMEOUT,
+            ResolvePolicy::Agnostic,
+        )
+    }
+}
+
+impl From<SocketAddrV4> for TcpTarget {
+    fn from(socket: SocketAddrV4) -> Self {
+        TcpTarget::new(
+            socket.ip().to_string(),
+            socket.port(),
+            DEFAULT_CONNECTION_TIMEOUT,
+            ResolvePolicy::ResolveToIPv4,
+        )
+    }
+}
+
+impl From<SocketAddrV6> for TcpTarget {
+    fn from(socket: SocketAddrV6) -> Self {
+        TcpTarget::new(
+            socket.ip().to_string(),
+            socket.port(),
+            DEFAULT_CONNECTION_TIMEOUT,
+            ResolvePolicy::ResolveToIPv6,
+        )
+    }
+}
+
+impl From<(IpAddr, u16)> for TcpTarget {
+    fn from(pieces: (IpAddr, u16)) -> Self {
+        TcpTarget::from(SocketAddr::from(pieces))
+    }
+}
+
+impl From<(Ipv4Addr, u16)> for TcpTarget {
+    fn from(pieces: (Ipv4Addr, u16)) -> Self {
+        let (addr, port) = pieces;
+        TcpTarget::from(SocketAddrV4::new(addr, port))
+    }
+}
+
+impl From<(Ipv6Addr, u16)> for TcpTarget {
+    fn from(pieces: (Ipv6Addr, u16)) -> Self {
+        let (addr, port) = pieces;
+        TcpTarget::from(SocketAddrV6::new(addr, port, 0, 0))
+    }
+}
+
+impl FromStr for TcpTarget {
+    type Err = ParseTargetError;
+
+    fn from_str(s: &str) -> Result<TcpTarget, Self::Err> {
+        if let Some(index) = s.rfind(':') {
+            // Extract and verify FQHN
+            let fqhn = String::from(&s[..index]);
+            if fqhn.is_empty() {
+                return Err(ParseTargetError::from("No FQHN found"));
             }
-            _ => None,
+
+            // Extract and verify Portnumber
+            let maybe_port = &s[index + 1..];
+            match maybe_port.parse() as Result<u16, ParseIntError> {
+                Ok(port) => {
+                    if port <= 0 {
+                        Err(ParseTargetError::from("Invalid Portnumber 0 found"))
+                    } else {
+                        Ok(TcpTarget::new(
+                            fqhn,
+                            port,
+                            DEFAULT_CONNECTION_TIMEOUT,
+                            ResolvePolicy::Agnostic,
+                        ))
+                    }
+                }
+                Err(err) => Err(ParseTargetError::from(("Failed to parse Portnumber", err))),
+            }
+        } else {
+            Err(ParseTargetError::from("Missing ':' between host and port"))
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::net::TcpListener;
+    use std::thread::{sleep, spawn};
+    use std::time::Duration;
+
     use super::*;
-    use std::net::{Ipv4Addr, Ipv6Addr};
+
+    // IcmpTarget tests
+    #[test]
+    fn icmp_target_from() {
+        // Expectency: The IcmpTarget offer multiple conversion implementations.
+        // This test has to ensure that they are working correctly.
+        // 1) from<IpAddr>
+        let target = IcmpTarget::from(IpAddr::V4(Ipv4Addr::LOCALHOST));
+        assert_eq!(target.fqhn, String::from("127.0.0.1"));
+        assert_eq!(target.resolve_policy, ResolvePolicy::Agnostic);
+
+        // 2) from<Ipv4Addr>
+        let target = IcmpTarget::from(Ipv4Addr::LOCALHOST);
+        assert_eq!(target.fqhn, String::from("127.0.0.1"));
+        assert_eq!(target.resolve_policy, ResolvePolicy::ResolveToIPv4);
+
+        // 3) from<Ipv6Addr>
+        let target = IcmpTarget::from(Ipv6Addr::LOCALHOST);
+        assert_eq!(target.fqhn, String::from("::1"));
+        assert_eq!(target.resolve_policy, ResolvePolicy::ResolveToIPv6);
+    }
 
     #[test]
-    fn icmp_resolve_localhost() {
+    fn icmp_target_from_str_valid() {
+        // Expectency: The IcmpTarget offer multiple conversion implementations.
+        // This test has to ensure that they are working correctly.
+        let target = IcmpTarget::from_str("127.0.0.1").unwrap();
+        assert_eq!(target.fqhn, "127.0.0.1");
+        assert_eq!(target.resolve_policy, ResolvePolicy::Agnostic);
+    }
+
+    #[test]
+    #[should_panic(expected = "No FQHN found")]
+    fn icmp_target_from_str_invalid() {
+        // Expectency: The IcmpTarget returns an error if fqhn is an empty string.
+        panic!("{}", IcmpTarget::from_str("").unwrap_err());
+    }
+
+    #[test]
+    fn icmp_target_get_id() {
+        // Expectency: get_id must return the FQHN for ICMP targets
+        assert_eq!(IcmpTarget::from_str("www.google.de").unwrap().get_id(), "www.google.de");
+        assert_eq!(IcmpTarget::from(Ipv4Addr::LOCALHOST).get_id(), "127.0.0.1");
+    }
+
+    #[test]
+    fn icmp_target_check_availability() {
+        // Expectency: LOCALHOST must always be available without any errors
+        let target = IcmpTarget::from(Ipv4Addr::LOCALHOST);
+        let status = target.check_availability().unwrap();
+        assert_eq!(status, Status::Available);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "ResolveTargetError caused by: IoError caused by: failed to lookup address information: Name or service not known"
+    )]
+    fn icmp_target_check_availability_invalid_host_error() {
+        // Expectency: A invalid host must lead to an error
+        let target = IcmpTarget::from_str("asdkjhasjdkhakjsdhsad").unwrap();
+        let status = target.check_availability();
+        panic!("{}", status.unwrap_err());
+    }
+
+    #[test]
+    #[should_panic(expected = "ResolveTargetError caused by: Given Policy filtered all resolved addresses")]
+    fn icmp_target_check_availability_all_addresses_filtered_error_v4() {
+        // Expectency: check_availability must return an error if all resolved
+        //             IPv4 addresses were discarded by the ResolvePolicy
+        let target = IcmpTarget::from(Ipv4Addr::LOCALHOST);
+        let target = target.set_resolve_policy(ResolvePolicy::ResolveToIPv6);
+        let status = target.check_availability();
+        panic!("{}", status.unwrap_err());
+    }
+
+    #[test]
+    #[should_panic(expected = "ResolveTargetError caused by: Given Policy filtered all resolved addresses")]
+    fn icmp_target_check_availability_all_addresses_filtered_error_v6() {
+        // Expectency: check_availability must return an error if all resolved
+        //             IPv6 addresses were discarded by the ResolvePolicy
+        let target = IcmpTarget::from(Ipv6Addr::LOCALHOST);
+        let target = target.set_resolve_policy(ResolvePolicy::ResolveToIPv4);
+        let status = target.check_availability();
+        panic!("{}", status.unwrap_err());
+    }
+
+    // TcpTarget tests
+    #[test]
+    fn tcp_target_from() {
+        // Expectency: The TcpTarget offer multiple conversion implementations.
+        // This test has to ensure that they are working correctly.
+        let expected_port = 1024;
+
+        // 1) from<SocketAddr>
+        let target = TcpTarget::from(SocketAddr::from((Ipv4Addr::LOCALHOST, expected_port)));
+        assert_eq!(target.fqhn, "127.0.0.1");
+        assert_eq!(target.port, expected_port);
+        assert_eq!(target.resolve_policy, ResolvePolicy::Agnostic);
+
+        // 2) from<SocketAddrV4>
+        let target = TcpTarget::from(SocketAddrV4::new(Ipv4Addr::LOCALHOST, expected_port));
+        assert_eq!(target.fqhn, "127.0.0.1");
+        assert_eq!(target.port, expected_port);
+        assert_eq!(target.resolve_policy, ResolvePolicy::ResolveToIPv4);
+
+        // 3) from<SocketAddrV6>
+        let target = TcpTarget::from(SocketAddrV6::new(Ipv6Addr::LOCALHOST, expected_port, 0, 0));
+        assert_eq!(target.fqhn, "::1");
+        assert_eq!(target.port, expected_port);
+        assert_eq!(target.resolve_policy, ResolvePolicy::ResolveToIPv6);
+
+        // 5) from<IpAddr>
+        let target = TcpTarget::from((IpAddr::V4(Ipv4Addr::LOCALHOST), expected_port));
+        assert_eq!(target.fqhn, "127.0.0.1");
+        assert_eq!(target.port, expected_port);
+        assert_eq!(target.resolve_policy, ResolvePolicy::Agnostic);
+
+        // 5) from<Ipv4Addr>
+        let target = TcpTarget::from((Ipv4Addr::LOCALHOST, expected_port));
+        assert_eq!(target.fqhn, "127.0.0.1");
+        assert_eq!(target.port, expected_port);
+        assert_eq!(target.resolve_policy, ResolvePolicy::ResolveToIPv4);
+
+        // 6) from<Ipv6Addr>
+        let target = TcpTarget::from((Ipv6Addr::LOCALHOST, expected_port));
+        assert_eq!(target.fqhn, "::1");
+        assert_eq!(target.port, expected_port);
+        assert_eq!(target.resolve_policy, ResolvePolicy::ResolveToIPv6);
+    }
+
+    #[test]
+    fn tcp_target_from_str_valid() {
+        // Expectency: The TcpTarget offer multiple conversion implementations.
+        // This test has to ensure that they are working correctly.
+
+        // from_str with valid IPv4 Address and port
+        let target = TcpTarget::from_str("127.0.0.1:1024").unwrap();
+        assert_eq!(target.fqhn, "127.0.0.1");
+        assert_eq!(target.port, 1024);
+        assert_eq!(target.resolve_policy, ResolvePolicy::Agnostic);
+
+        // from_str with valid IPv6 Address and port
+        let target = TcpTarget::from_str("[::1]:1024").unwrap();
+        assert_eq!(target.fqhn, "[::1]");
+        assert_eq!(target.port, 1024);
+        assert_eq!(target.resolve_policy, ResolvePolicy::Agnostic);
+    }
+
+    #[test]
+    #[should_panic(expected = "Missing ':' between host and port")]
+    fn tcp_target_from_str_invalid_no_double_colon() {
+        // Expectency: The TcpTarget returns an error if string contains no :.
+        panic!("{}", TcpTarget::from_str("1024").unwrap_err());
+    }
+
+    #[test]
+    #[should_panic(expected = "Failed to parse Portnumber caused by: cannot parse integer from empty string")]
+    fn tcp_target_from_str_invalid_no_port() {
+        // Expectency: The TcpTarget returns an error if string contains no port.
+        panic!("{}", TcpTarget::from_str("foo:").unwrap_err());
+    }
+
+    #[test]
+    #[should_panic(expected = "Failed to parse Portnumber caused by: invalid digit found in string")]
+    fn tcp_target_from_str_invalid_port() {
+        // Expectency: The TcpTarget returns an error if string contains no port number.
+        panic!("{}", TcpTarget::from_str("foo:12bar32").unwrap_err());
+    }
+
+    #[test]
+    #[should_panic(expected = "Failed to parse Portnumber caused by: number too large to fit in target type")]
+    fn tcp_target_from_str_invalid_port_overflow() {
+        // Expectency: The TcpTarget returns an error if portnumber overflows u16.
+        panic!("{}", TcpTarget::from_str("foo:65536").unwrap_err());
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid Portnumber 0 found")]
+    fn tcp_target_from_str_invalid_port_zero() {
+        // Expectency: The TcpTarget returns an error if portnumber is 0 (invalid port).
+        panic!("{}", TcpTarget::from_str("foo:0").unwrap_err());
+    }
+
+    #[test]
+    #[should_panic(expected = "No FQHN found")]
+    fn tcp_target_from_str_invalid_no_fqhn() {
+        // Expectency: The TcpTarget returns an error if fqhn is an empty string.
+        panic!("{}", TcpTarget::from_str(":1024").unwrap_err());
+    }
+
+    #[test]
+    fn tcp_target_get_id() {
+        // Expectency: get_id must return the FQHN + Portnumber for TCP targets
         assert_eq!(
-            Target::Icmp("127.0.0.1".to_string()).resolve(),
-            Some(vec![IpAddr::V4(Ipv4Addr::LOCALHOST)])
+            TcpTarget::from_str("www.google.de:1024").unwrap().get_id(),
+            "www.google.de:1024"
         );
+        assert_eq!(TcpTarget::from((Ipv4Addr::LOCALHOST, 23)).get_id(), "127.0.0.1:23");
     }
 
     #[test]
-    fn icmp_resolve_existing_url() {
-        let opt = Target::Icmp("www.ietf.com".to_string()).resolve();
-        assert_eq!(opt.is_some(), true);
+    fn tcp_target_check_availability() {
+        // Expectency: check_availability must return Status::Available if a peer accepts a
+        //             connection.
+        let srv = spawn(|| TcpListener::bind("127.0.0.1:24211").unwrap().accept().unwrap());
+        sleep(Duration::from_millis(500));
+
+        // Connect to local TCP connection
+        let target = TcpTarget::from_str("127.0.0.1:24211").unwrap();
+        let status = target.check_availability().unwrap();
+        assert_eq!(status, Status::Available);
+
+        // Join spawned thread
+        srv.join().unwrap();
     }
 
     #[test]
-    fn icmp_resolve_non_existing_url() {
-        assert_eq!(
-            Target::Icmp("saldkalskdj.foobar".to_string()).resolve(),
-            None
-        );
+    fn tcp_target_check_unavailability() {
+        // Expectency: check_availability must return Status::NotAvailable if on a closed port.
+        // Connect to local TCP connection
+        let target = TcpTarget::from_str("127.0.0.1:24212").unwrap();
+        let status = target.check_availability().unwrap();
+        assert_eq!(status, Status::NotAvailable);
     }
 
     #[test]
-    fn icmp_on_ipv4_resolve_v4_localhost() {
-        assert_eq!(
-            Target::IcmpOnIpv4("127.0.0.1".to_string()).resolve(),
-            Some(vec![IpAddr::V4(Ipv4Addr::LOCALHOST)])
-        );
+    #[should_panic(
+        expected = "ResolveTargetError caused by: IoError caused by: failed to lookup address information: Name or service not known"
+    )]
+    fn tcp_target_check_availability_invalid_host_error() {
+        // Expectency: A invalid host must lead to an error
+        let target = TcpTarget::from_str("asdkjhasjdkhakjsdhsad:1025").unwrap();
+        let status = target.check_availability();
+        panic!("{}", status.unwrap_err());
     }
 
     #[test]
-    fn icmp_on_ipv4_resolve_v6_localhost() {
-        assert_eq!(Target::IcmpOnIpv4("::1".to_string()).resolve(), None);
+    #[should_panic(expected = "ResolveTargetError caused by: Given Policy filtered all resolved addresses")]
+    fn tcp_target_check_availability_all_addresses_filtered_error_v4() {
+        // Expectency: check_availability must return an error if all resolved
+        //             IPv4 addresses were discarded by the ResolvePolicy
+        let target = TcpTarget::from((Ipv4Addr::LOCALHOST, 1024));
+        let target = target.set_resolve_policy(ResolvePolicy::ResolveToIPv6);
+        let status = target.check_availability();
+        panic!("{}", status.unwrap_err());
     }
 
     #[test]
-    fn icmp_on_ipv6_resolve_v6_localhost() {
-        assert_eq!(
-            Target::IcmpOnIpv6("::1".to_string()).resolve(),
-            Some(vec![IpAddr::V6(Ipv6Addr::LOCALHOST)])
-        );
-    }
-
-    #[test]
-    fn icmp_on_ipv6_resolve_v4_localhost() {
-        assert_eq!(Target::IcmpOnIpv6("127.0.0.1".to_string()).resolve(), None);
-    }
-
-    #[test]
-    fn tcp_resolve_localhost() {
-        assert_eq!(
-            Target::Tcp("127.0.0.1".to_string(), 80).resolve(),
-            Some(vec![IpAddr::V4(Ipv4Addr::LOCALHOST)])
-        );
-    }
-
-    #[test]
-    fn tcp_resolve_existing_url() {
-        let opt = Target::Tcp("www.ietf.com".to_string(), 80).resolve();
-        assert_eq!(opt.is_some(), true);
-    }
-
-    #[test]
-    fn tcp_resolve_non_existing_url() {
-        assert_eq!(
-            Target::Tcp("saldkalskdj.foobar".to_string(), 80).resolve(),
-            None
-        );
-    }
-
-    #[test]
-    fn tcp_on_ipv4_resolve_v4_localhost() {
-        assert_eq!(
-            Target::TcpOnIpv4("127.0.0.1".to_string(), 80).resolve(),
-            Some(vec![IpAddr::V4(Ipv4Addr::LOCALHOST)])
-        );
-    }
-
-    #[test]
-    fn tcp_on_ipv4_resolve_v6_localhost() {
-        assert_eq!(Target::TcpOnIpv4("::1".to_string(), 80).resolve(), None);
-    }
-
-    #[test]
-    fn tcp_on_ipv6_resolve_v6_localhost() {
-        assert_eq!(
-            Target::TcpOnIpv6("::1".to_string(), 80).resolve(),
-            Some(vec![IpAddr::V6(Ipv6Addr::LOCALHOST)])
-        );
-    }
-
-    #[test]
-    fn tcp_on_ipv6_resolve_v4_localhost() {
-        assert_eq!(
-            Target::TcpOnIpv6("127.0.0.1".to_string(), 80).resolve(),
-            None
-        );
+    #[should_panic(expected = "ResolveTargetError caused by: Given Policy filtered all resolved addresses")]
+    fn tcp_target_check_availability_all_addresses_filtered_error_v6() {
+        // Expectency: check_availability must return an error if all resolved
+        //             IPv6 addresses were discarded by the ResolvePolicy
+        let target = TcpTarget::from((Ipv6Addr::LOCALHOST, 1024));
+        let target = target.set_resolve_policy(ResolvePolicy::ResolveToIPv4);
+        let status = target.check_availability();
+        panic!("{}", status.unwrap_err());
     }
 }

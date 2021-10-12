@@ -1,18 +1,16 @@
-// TODO: Claim authorship
 // TODO: Document all of this
-// TODO: Publish on github
 
-mod endpoint;
-pub use endpoint::Endpoint;
+mod error;
+pub use error::{CheckTargetError, ParseTargetError, ResolveTargetError};
 
-mod status;
-pub use status::Status;
+mod resolve_policy;
+pub use resolve_policy::ResolvePolicy;
 
 mod target;
-pub use target::Target;
+pub use target::{IcmpTarget, Status, Target, TcpTarget};
 
 #[cfg(feature = "async")]
-mod endpoint_async;
+mod async_target;
 
 #[cfg(feature = "async")]
-pub use endpoint_async::{EndpointAsync, Exec, Executor, OldStatus};
+pub use async_target::{check_target, AsyncTarget, AsyncTargetExecutor, OldStatus};
