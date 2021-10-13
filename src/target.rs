@@ -347,10 +347,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "No FQHN found")]
     fn icmp_target_from_str_invalid() {
         // Expectency: The IcmpTarget returns an error if fqhn is an empty string.
-        panic!("{}", IcmpTarget::from_str("").unwrap_err());
+        assert_eq!(format!("{}", IcmpTarget::from_str("").unwrap_err()), "No FQHN found");
     }
 
     #[test]
@@ -369,36 +368,40 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "ResolveTargetError caused by: IoError caused by: failed to lookup address information: Name or service not known"
-    )]
     fn icmp_target_check_availability_invalid_host_error() {
         // Expectency: A invalid host must lead to an error
         let target = IcmpTarget::from_str("asdkjhasjdkhakjsdhsad").unwrap();
         let status = target.check_availability();
-        panic!("{}", status.unwrap_err());
+        assert_eq!(
+            format!("{}", status.unwrap_err()),
+            "ResolveTargetError caused by: IoError caused by: failed to lookup address information: Name or service not known"
+        );
     }
 
     #[test]
-    #[should_panic(expected = "ResolveTargetError caused by: Given Policy filtered all resolved addresses")]
     fn icmp_target_check_availability_all_addresses_filtered_error_v4() {
         // Expectency: check_availability must return an error if all resolved
         //             IPv4 addresses were discarded by the ResolvePolicy
         let target = IcmpTarget::from(Ipv4Addr::LOCALHOST);
         let target = target.set_resolve_policy(ResolvePolicy::ResolveToIPv6);
         let status = target.check_availability();
-        panic!("{}", status.unwrap_err());
+        assert_eq!(
+            format!("{}", status.unwrap_err()),
+            "ResolveTargetError caused by: Given Policy filtered all resolved addresses"
+        );
     }
 
     #[test]
-    #[should_panic(expected = "ResolveTargetError caused by: Given Policy filtered all resolved addresses")]
     fn icmp_target_check_availability_all_addresses_filtered_error_v6() {
         // Expectency: check_availability must return an error if all resolved
         //             IPv6 addresses were discarded by the ResolvePolicy
         let target = IcmpTarget::from(Ipv6Addr::LOCALHOST);
         let target = target.set_resolve_policy(ResolvePolicy::ResolveToIPv4);
         let status = target.check_availability();
-        panic!("{}", status.unwrap_err());
+        assert_eq!(
+            format!("{}", status.unwrap_err()),
+            "ResolveTargetError caused by: Given Policy filtered all resolved addresses"
+        );
     }
 
     // TcpTarget tests
@@ -464,45 +467,57 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Missing ':' between host and port")]
     fn tcp_target_from_str_invalid_no_double_colon() {
         // Expectency: The TcpTarget returns an error if string contains no :.
-        panic!("{}", TcpTarget::from_str("1024").unwrap_err());
+        assert_eq!(
+            format!("{}", TcpTarget::from_str("1024").unwrap_err()),
+            "Missing ':' between host and port"
+        );
     }
 
     #[test]
-    #[should_panic(expected = "Failed to parse Portnumber caused by: cannot parse integer from empty string")]
     fn tcp_target_from_str_invalid_no_port() {
         // Expectency: The TcpTarget returns an error if string contains no port.
-        panic!("{}", TcpTarget::from_str("foo:").unwrap_err());
+        assert_eq!(
+            format!("{}", TcpTarget::from_str("foo:").unwrap_err()),
+            "Failed to parse Portnumber caused by: cannot parse integer from empty string"
+        );
     }
 
     #[test]
-    #[should_panic(expected = "Failed to parse Portnumber caused by: invalid digit found in string")]
     fn tcp_target_from_str_invalid_port() {
         // Expectency: The TcpTarget returns an error if string contains no port number.
-        panic!("{}", TcpTarget::from_str("foo:12bar32").unwrap_err());
+        assert_eq!(
+            format!("{}", TcpTarget::from_str("foo:12bar32").unwrap_err()),
+            "Failed to parse Portnumber caused by: invalid digit found in string"
+        );
     }
 
     #[test]
-    #[should_panic(expected = "Failed to parse Portnumber caused by: number too large to fit in target type")]
     fn tcp_target_from_str_invalid_port_overflow() {
         // Expectency: The TcpTarget returns an error if portnumber overflows u16.
-        panic!("{}", TcpTarget::from_str("foo:65536").unwrap_err());
+        assert_eq!(
+            format!("{}", TcpTarget::from_str("foo:65536").unwrap_err()),
+            "Failed to parse Portnumber caused by: number too large to fit in target type"
+        );
     }
 
     #[test]
-    #[should_panic(expected = "Invalid Portnumber 0 found")]
     fn tcp_target_from_str_invalid_port_zero() {
         // Expectency: The TcpTarget returns an error if portnumber is 0 (invalid port).
-        panic!("{}", TcpTarget::from_str("foo:0").unwrap_err());
+        assert_eq!(
+            format!("{}", TcpTarget::from_str("foo:0").unwrap_err()),
+            "Invalid Portnumber 0 found"
+        );
     }
 
     #[test]
-    #[should_panic(expected = "No FQHN found")]
     fn tcp_target_from_str_invalid_no_fqhn() {
         // Expectency: The TcpTarget returns an error if fqhn is an empty string.
-        panic!("{}", TcpTarget::from_str(":1024").unwrap_err());
+        assert_eq!(
+            format!("{}", TcpTarget::from_str(":1024").unwrap_err()),
+            "No FQHN found"
+        );
     }
 
     #[test]
@@ -541,35 +556,37 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "ResolveTargetError caused by: IoError caused by: failed to lookup address information: Name or service not known"
-    )]
     fn tcp_target_check_availability_invalid_host_error() {
         // Expectency: A invalid host must lead to an error
         let target = TcpTarget::from_str("asdkjhasjdkhakjsdhsad:1025").unwrap();
         let status = target.check_availability();
-        panic!("{}", status.unwrap_err());
+        assert_eq!(
+            format!("{}", status.unwrap_err()),
+            "ResolveTargetError caused by: IoError caused by: failed to lookup address information: Name or service not known"
+        );
     }
 
     #[test]
-    #[should_panic(expected = "ResolveTargetError caused by: Given Policy filtered all resolved addresses")]
     fn tcp_target_check_availability_all_addresses_filtered_error_v4() {
         // Expectency: check_availability must return an error if all resolved
         //             IPv4 addresses were discarded by the ResolvePolicy
-        let target = TcpTarget::from((Ipv4Addr::LOCALHOST, 1024));
-        let target = target.set_resolve_policy(ResolvePolicy::ResolveToIPv6);
+        let target = TcpTarget::from((Ipv4Addr::LOCALHOST, 1024)).set_resolve_policy(ResolvePolicy::ResolveToIPv6);
         let status = target.check_availability();
-        panic!("{}", status.unwrap_err());
+        assert_eq!(
+            format!("{}", status.unwrap_err()),
+            "ResolveTargetError caused by: Given Policy filtered all resolved addresses"
+        );
     }
 
     #[test]
-    #[should_panic(expected = "ResolveTargetError caused by: Given Policy filtered all resolved addresses")]
     fn tcp_target_check_availability_all_addresses_filtered_error_v6() {
         // Expectency: check_availability must return an error if all resolved
         //             IPv6 addresses were discarded by the ResolvePolicy
-        let target = TcpTarget::from((Ipv6Addr::LOCALHOST, 1024));
-        let target = target.set_resolve_policy(ResolvePolicy::ResolveToIPv4);
+        let target = TcpTarget::from((Ipv6Addr::LOCALHOST, 1024)).set_resolve_policy(ResolvePolicy::ResolveToIPv4);
         let status = target.check_availability();
-        panic!("{}", status.unwrap_err());
+        assert_eq!(
+            format!("{}", status.unwrap_err()),
+            "ResolveTargetError caused by: Given Policy filtered all resolved addresses"
+        );
     }
 }
