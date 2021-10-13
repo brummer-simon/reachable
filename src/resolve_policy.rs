@@ -25,9 +25,7 @@ impl ResolvePolicy {
         };
 
         if addrs.is_empty() {
-            Err(ResolveTargetError::from(
-                "Given Policy filtered all resolved addresses.",
-            ))
+            Err(ResolveTargetError::from("Given Policy filtered all resolved addresses"))
         } else {
             Ok(addrs)
         }
@@ -58,7 +56,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Given Policy filtered all resolved addresses.")]
     fn resolver_policy_ipv4() {
         // Expectency: If ResolvePolicy is set to IPv4, resolve returns
         // only IPv4 addresses if the resolution was successfull
@@ -71,11 +68,13 @@ mod tests {
 
         // Test if ipv6 localhost is resolvable. IPv6 addresses must be filtered out
         let ipv6_localhost = String::from("::1");
-        panic!("{}", policy.resolve(&ipv6_localhost).unwrap_err());
+        assert_eq!(
+            format!("{}", policy.resolve(&ipv6_localhost).unwrap_err()),
+            "Given Policy filtered all resolved addresses"
+        );
     }
 
     #[test]
-    #[should_panic(expected = "Given Policy filtered all resolved addresses.")]
     fn resolver_policy_ipv6() {
         // Expectency: If ResolvePolicy is set to IPv6, resolve can return
         // only IPv6 addresses if the resolution was successfull
@@ -88,16 +87,21 @@ mod tests {
 
         // Test if ipv4 localhost is resolvable. IPv4 addresses must be filtered out
         let ipv4_localhost = String::from("127.0.0.1");
-        panic!("{}", policy.resolve(&ipv4_localhost).unwrap_err());
+        assert_eq!(
+            format!("{}", policy.resolve(&ipv4_localhost).unwrap_err()),
+            "Given Policy filtered all resolved addresses"
+        );
     }
 
     #[test]
-    #[should_panic(expected = "IoError caused by: failed to lookup address information: Name or service not known")]
     fn resolver_policy_fail_to_resolve() {
         // Expectency: If ResolvePolicy must return an io::Error if the given hostname
         // can't be resolved.
         let policy = ResolvePolicy::Agnostic;
         let invalid_host = String::from("askjdakdsjhaksd.com");
-        panic!("{}", policy.resolve(&invalid_host).unwrap_err());
+        assert_eq!(
+            format!("{}", policy.resolve(&invalid_host).unwrap_err()),
+            "IoError caused by: failed to lookup address information: Name or service not known"
+        );
     }
 }

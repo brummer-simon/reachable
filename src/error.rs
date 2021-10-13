@@ -209,93 +209,112 @@ mod tests {
 
     // ParseTargetError tests
     #[test]
-    #[should_panic(expected = "Error Message!")]
     fn parse_target_error_from_str() {
         // Expectency: A ParseTargetError must contain its error message.
-        panic!("{}", ParseTargetError::from("Error Message!"));
+        assert_eq!(
+            format!("{}", ParseTargetError::from("Error Message!")),
+            "Error Message!"
+        );
     }
 
     #[test]
-    #[should_panic(expected = "ParseIntError! caused by: invalid digit found in string")]
     fn parse_target_error_from_parse_int_error() {
         // Expectency: A ParseTargetError must contain its error message and the description
         //             of the inner ParseIntError.
         let error = i32::from_str_radix("invalid", 10).unwrap_err();
-        panic!("{}", ParseTargetError::from(("ParseIntError!", error)));
+        assert_eq!(
+            format!("{}", ParseTargetError::from(("ParseIntError!", error))),
+            "ParseIntError! caused by: invalid digit found in string"
+        );
     }
 
     #[test]
-    #[should_panic(expected = "GenericError caused by: out of memory")]
     fn parse_target_error_from_boxed_error_trait_object() {
         // Expectency: A ParseTargetError must contain its error message and the description
         //             of the inner boxed error trait object.
-        let boxed_error: Box<dyn Error> = Box::new(io::Error::from(io::ErrorKind::OutOfMemory));
-        panic!("{}", ParseTargetError::from(boxed_error));
+        let boxed_error: Box<dyn Error> = Box::new(io::Error::from(io::ErrorKind::AddrNotAvailable));
+        assert_eq!(
+            format!("{}", ParseTargetError::from(boxed_error)),
+            "GenericError caused by: address not available"
+        );
     }
 
     #[test]
-    #[should_panic(expected = "Layer3! caused by: Layer2! caused by: Layer1!")]
     fn parse_target_error_chain_multiple_errors() {
         // Expectency: A ParseTargetError must recursively resolve its all its stored inner errors.
         //             chaining them together into a single message
         let error1: Box<dyn Error> = Box::new(ParseTargetError::from("Layer1!"));
         let error2: Box<dyn Error> = Box::new(ParseTargetError::from(("Layer2!", error1)));
-        panic!("{}", ParseTargetError::from(("Layer3!", error2)));
+        assert_eq!(
+            format!("{}", ParseTargetError::from(("Layer3!", error2))),
+            "Layer3! caused by: Layer2! caused by: Layer1!"
+        );
     }
 
     // ResolveTargetError tests
     #[test]
-    #[should_panic(expected = "Error Message!")]
     fn resolve_target_error_from_str() {
         // Expectency: A ResolveTargetError must contain its error message
-        panic!("{}", ResolveTargetError::from("Error Message!"));
+        assert_eq!(
+            format!("{}", ResolveTargetError::from("Error Message!")),
+            "Error Message!"
+        );
     }
 
     #[test]
-    #[should_panic(expected = "IoError caused by: other os error")]
     fn resolve_target_error_from_parse_int_error() {
         // Expectency: A ResolveTargetError must contain its error message and the description
         //             of the inner io::Error.
-        panic!("{}", ResolveTargetError::from(io::Error::from(io::ErrorKind::Other)));
+        assert_eq!(
+            format!("{}", ResolveTargetError::from(io::Error::from(io::ErrorKind::Other))),
+            "IoError caused by: other error"
+        );
     }
 
     #[test]
-    #[should_panic(expected = "GenericError caused by: ParseTargetError")]
     fn resolve_target_error_from_boxed_error_trait_object() {
         // Expectency: A ResolveTargetError must contain its error message and the description
         //             of the inner boxed error trait object.
         let boxed_error: Box<dyn Error> = Box::new(ParseTargetError::from("ParseTargetError"));
-        panic!("{}", ResolveTargetError::from(boxed_error));
+        assert_eq!(
+            format!("{}", ResolveTargetError::from(boxed_error)),
+            "GenericError caused by: ParseTargetError"
+        );
     }
 
     // CheckTargetError tests
     #[test]
-    #[should_panic(expected = "Error Message!")]
     fn check_target_error_from_str() {
         // Expectency: A CheckTargetError must contain its error message.
-        panic!("{}", CheckTargetError::from("Error Message!"));
+        assert_eq!(
+            format!("{}", CheckTargetError::from("Error Message!")),
+            "Error Message!"
+        );
     }
 
     #[test]
-    #[should_panic(expected = "ResolveTargetError caused by: IoError caused by: out of memory")]
     fn check_target_error_from_resolve_target_error() {
         // Expectency: A CheckTargetError must contain its error message and an instance of
         //             ResolveTargetError
-        let resolve_target_error = ResolveTargetError::from(io::Error::from(io::ErrorKind::OutOfMemory));
-        panic!("{}", CheckTargetError::from(resolve_target_error));
+        let resolve_target_error = ResolveTargetError::from(io::Error::from(io::ErrorKind::AddrNotAvailable));
+        assert_eq!(
+            format!("{}", CheckTargetError::from(resolve_target_error)),
+            "ResolveTargetError caused by: IoError caused by: address not available"
+        );
     }
 
     #[test]
-    #[should_panic(expected = "GenericError caused by: out of memory")]
     fn check_target_error_from_boxed_error_trait_object() {
         // Expectency: A CheckTargetError must contain its error message and the description
         //             of the inner boxed error trait object.
-        let boxed_error: Box<dyn Error> = Box::new(io::Error::from(io::ErrorKind::OutOfMemory));
-        panic!("{}", CheckTargetError::from(boxed_error));
+        let boxed_error: Box<dyn Error> = Box::new(io::Error::from(io::ErrorKind::AddrNotAvailable));
+        assert_eq!(
+            format!("{}", CheckTargetError::from(boxed_error)),
+            "GenericError caused by: address not available"
+        );
     }
 
     #[test]
-    #[should_panic(expected = "ResolveTargetError caused by: IoError caused by: timed out")]
     fn check_target_error_via_questionmark_operator() {
         // Expectency: Ensure conversion via Questionmark operator: Construct ResolveTargetError
         //             from io::Error and then construct CheckTargetError from ResolveTargetError
@@ -308,6 +327,9 @@ mod tests {
         fn returns_check_target_error() -> Result<u32, CheckTargetError> {
             Ok(returns_resolve_target_error()?)
         }
-        panic!("{}", returns_check_target_error().unwrap_err());
+        assert_eq!(
+            format!("{}", returns_check_target_error().unwrap_err()),
+            "ResolveTargetError caused by: IoError caused by: timed out"
+        );
     }
 }
