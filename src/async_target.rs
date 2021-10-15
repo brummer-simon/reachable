@@ -1,11 +1,12 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::thread::{spawn, JoinHandle};
 use std::time::Duration;
 
-use async_io::Timer;
-use futures::executor::block_on;
-use futures::future::{join_all, BoxFuture, FutureExt};
+use futures::future::{join, join_all, BoxFuture, FutureExt};
+use tokio::runtime::{self};
+use tokio::select;
+use tokio::sync::watch::{self, Receiver, Sender};
+use tokio::task::{self};
+use tokio::time::{self};
 
 use crate::{CheckTargetError, Status, Target};
 
@@ -45,7 +46,7 @@ where
 }
 
 pub struct AsyncTargetExecutor {
-    worker: Option<(JoinHandle<()>, Arc<AtomicBool>)>,
+    worker: Option<(JoinHandle<()>, Sender<()>)>,
 }
 
 impl AsyncTargetExecutor {
@@ -57,26 +58,36 @@ impl AsyncTargetExecutor {
 
     pub fn start(&mut self, targets: Vec<AsyncTarget<'static>>) {
         if self.worker.is_none() {
-            let shutdown_requested = Arc::new(AtomicBool::new(false));
-            let shutdown_requested_clone = shutdown_requested.clone();
+            // Setup teardown mechanism and construct runtime
+            let (teardown_send, teardown_recv) = watch::channel(());
+            let runtime = runtime::Builder::new_multi_thread().enable_time().build().unwrap();
 
             // Convert all targets into BoxFutures and execute them afterwards
-            let handle = spawn(move || {
-                let tasks: Vec<BoxFuture<()>> = targets
-                    .into_iter()
-                    .map(|target| check_target(target, shutdown_requested_clone.clone()))
-                    .collect();
+            let tasks: Vec<BoxFuture<()>> = targets
+                .into_iter()
+                .map(|target| check_target_periodically(target, teardown_recv.clone()).boxed())
+                .collect();
 
-                block_on(join_all(tasks));
+            // Spawn eventloop in a dedicated thread.
+            // Note: After sending a shutdown message, all spawend tasks terminate.
+            // The Problem here is that some async calles were offloaded to dedicated processing
+            // threads. For a runtime to shutdown, these threads must have been processed, this
+            // causes potentially a huge delay.
+            // To prevent this, all unfinished tasks are moved to a detached thread
+            // allowing this thread to terminate in a timely manner.
+            let handle = spawn(move || {
+                runtime.block_on(join_all(tasks));
+                runtime.shutdown_background();
             });
 
-            self.worker = Some((handle, shutdown_requested));
+            self.worker = Some((handle, teardown_send));
         }
     }
 
     pub fn stop(&mut self) {
-        if let Some((handle, shutdown_requested)) = self.worker.take() {
-            shutdown_requested.store(true, Ordering::Relaxed);
+        if let Some((handle, teardown_send)) = self.worker.take() {
+            // Signal all async tasks to terminate and wait until runtime thread stopped.
+            teardown_send.send(()).unwrap();
             handle.join().unwrap();
         }
     }
@@ -88,39 +99,42 @@ impl Drop for AsyncTargetExecutor {
     }
 }
 
-pub fn check_target(mut async_target: AsyncTarget, shutdown_requested: Arc<AtomicBool>) -> BoxFuture<()> {
-    async {
-        // Stop recursive execution if shutdown_requested flag has been set.
-        if shutdown_requested.load(Ordering::Relaxed) {
-            return;
-        }
+async fn check_target_periodically(mut target: AsyncTarget<'static>, mut teardown_recv: Receiver<()>) -> () {
+    loop {
+        target = select! {
+            // Teardown message was not received. Perform next check.
+            target = check_target(target) => target,
 
-        // Setup async timeout to wait for next check
-        let timer = Timer::after(async_target.check_interval);
-
-        // Note: async forces variables in scope, that outlive .await calls, to implement the Send Trait.
-        // The Error trait does implement Send, therefore Option<CheckTargetError>
-        // must not live longer then timer.await below. To limit the lifespan of error
-        // we open a inner scope and close it before await
-        {
-            // Try to query current status. If this fails, store error and hand it to check_handler
-            let (status, error) = match async_target.target.check_availability() {
-                Ok(status) => (status, None),
-                Err(error) => (Status::Unknown, Some(error)),
-            };
-
-            // Update stored status
-            let old_status = async_target.status;
-            async_target.status = status.clone();
-
-            // Run timer and callable execution concurrently.
-            async_target.check_handler.as_mut()(async_target.target.as_ref(), status, old_status, error);
-        }
-        // Wait until the timer expired and wait for next execution
-        timer.await;
-        check_target(async_target, shutdown_requested).await;
+            // Teardown message was received: Stop processing
+            _ = teardown_recv.changed() => return,
+        };
     }
-    .boxed()
+}
+
+async fn check_target(mut target: AsyncTarget<'static>) -> AsyncTarget<'_> {
+    // Setup sleep timer to wait, to prevent further execution before the check_interval elapsed.
+    let sleep = time::sleep(target.check_interval);
+
+    // Offload potentially blocking check_availability call onto a separate thread
+    let task = task::spawn_blocking(|| {
+        // Check current target availability
+        let (status, error) = match target.target.check_availability() {
+            Ok(status) => (status, None),
+            Err(error) => (Status::Unknown, Some(error)),
+        };
+
+        // Update stored status
+        let old_status = target.status;
+        target.status = status.clone();
+
+        // Call stored Handler
+        target.check_handler.as_mut()(target.target.as_ref(), status, old_status, error);
+        target
+    });
+
+    // Wait until the task was processed and the sleep interval expired. Return given async_target
+    let (tmp, _) = join(task, sleep).await;
+    tmp.unwrap()
 }
 
 #[cfg(test)]
