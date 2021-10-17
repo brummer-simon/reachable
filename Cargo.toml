@@ -1,8 +1,14 @@
 [package]
 name = "reachable"
 version = "0.2.0"
+edition = "2021"
 authors = ["Simon Brummer <simon.brummer@posteo.de>"]
-edition = "2018"
+description = "Check if a Target (ICMP, TCP, custom) is reachable."
+license = "MPL-2.0"
+readme = "README.md"
+repository = "https://github.com/brummer-simon/reachable.git"
+keywords = ["network", "async"]
+categories = ["network-programming"]
 
 [dependencies]
 dns-lookup = {version = "1.0.7"}
