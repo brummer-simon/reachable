@@ -4,23 +4,56 @@
 //
 // Author: Simon Brummer (simon.brummer@posteo.de)
 
+//! Module containing everything related network name resolution and filtering
+//! of the resolved IP addresses.
+
+// Imports
+use super::ResolveTargetError;
+use dns_lookup::lookup_host;
 use std::net::IpAddr;
 
-use dns_lookup::lookup_host;
+// Documentation imports
+#[cfg(doc)]
+use super::{IcmpTarget, TcpTarget};
 
-use super::ResolveTargetError;
-
+/// A ResolvePolicy allows control over IP address resolution of network targets
+/// like [IcmpTarget] and [TcpTarget].
 #[derive(PartialEq, Debug)]
 pub enum ResolvePolicy {
-    /// Resolve FQHN IP version agnostic
+    /// Resolve use all IP address versions
     Agnostic,
-    /// Resolve FQHN to IPv4 addresses only
+    /// Resolve to IPv4 addresses only
     ResolveToIPv4,
-    /// Resolve FQHN to IPv6 addresses only
+    /// Resolve to IPv6 addresses only
     ResolveToIPv6,
 }
 
 impl ResolvePolicy {
+    /// Resolve given "fully qualified domain name" (fancy name for a hostname or ip address)
+    /// to a series of ip addresses associated with given fqhn.
+    ///
+    /// # Arguments
+    /// * fqhn: string containing "fully qualified domain name" e.g. "::1", "localhost".
+    ///
+    /// # Returns
+    /// * On success, vector containing all ip addresses the fqhn resolved to.
+    /// * On failure, a [ResolveTargetError]. Either failed the name resolution itself or all
+    ///   addresses were filtered out according to [ResolvePolicy].
+    ///
+    /// # Example
+    /// ```
+    /// # use std::net::{IpAddr, Ipv4Addr};
+    /// # use reachable::ResolvePolicy;
+    ///
+    /// // FQHN was resolved
+    /// assert_eq!(
+    ///     ResolvePolicy::Agnostic.resolve("127.0.0.1").unwrap(),
+    ///     vec![IpAddr::V4(Ipv4Addr::LOCALHOST)]
+    /// );
+    ///
+    /// // FQHN was resolved, but all Addresses were filtered
+    /// assert_eq!(ResolvePolicy::ResolveToIPv6.resolve("127.0.0.1").is_err(), true);
+    /// ```
     pub fn resolve(&self, fqhn: &str) -> Result<Vec<IpAddr>, ResolveTargetError> {
         let mut addrs = lookup_host(fqhn)?;
 

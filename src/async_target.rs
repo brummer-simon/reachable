@@ -4,22 +4,29 @@
 //
 // Author: Simon Brummer (simon.brummer@posteo.de)
 
+//! Module contains utilities for asynchronous, iterative "Target" reachability checking.
+//!
+//! # Notes
+//! Requires crate to be configured with feature "async".
+
+use super::{CheckTargetError, Status, Target};
+use futures::future::{join, join_all, BoxFuture, FutureExt};
 use std::thread::{spawn, JoinHandle};
 use std::time::Duration;
-
-use futures::future::{join, join_all, BoxFuture, FutureExt};
 use tokio::runtime::{self};
 use tokio::select;
-use tokio::sync::watch::{
-    Receiver, Sender, {self},
-};
+use tokio::sync::watch::{self, Receiver, Sender};
 use tokio::task::{self};
 use tokio::time::{self};
 
-use crate::{CheckTargetError, Status, Target};
-
+/// Alias on [Status] to distinct between status of previous availability
+/// check and the current availability check
 pub type OldStatus = Status;
 
+/// Struct storing all data used during asynchronous execution.
+///
+/// For async check execution, wrap the instances of [Target] in [AsyncTarget] and hand them to
+/// [AsyncTargetExecutor::start].
 pub struct AsyncTarget<'a> {
     target: Box<dyn Target + Send + 'a>,
     check_handler: Box<dyn FnMut(&dyn Target, Status, OldStatus, Option<CheckTargetError>) + Send + 'a>,
@@ -28,6 +35,15 @@ pub struct AsyncTarget<'a> {
 }
 
 impl<'a> AsyncTarget<'a> {
+    /// Construct an [AsyncTarget]. For more convenience use [AsyncTarget::from] instead.
+    ///
+    /// # Arguments
+    /// * target: trait object implementing [Target] to use in periodic checks.
+    /// * check_handler: Function to call with the results of [Target::check_availability].
+    /// * check_interval: time [Duration] between periodic availability checks.
+    ///
+    /// # Returns
+    /// Instance of [AsyncTarget].
     pub fn new(
         target: Box<dyn Target + Send + 'a>,
         check_handler: Box<dyn FnMut(&dyn Target, Status, OldStatus, Option<CheckTargetError>) + Send + 'a>,
@@ -47,23 +63,57 @@ where
     T: Target + Send + 'a,
     U: FnMut(&dyn Target, Status, OldStatus, Option<CheckTargetError>) + Send + 'a,
 {
+    /// Build a [AsyncTarget] from a Target, a function to be executed with the results of
+    /// an availability check and a time interval an availability check occurs.
+    ///
+    /// # Example
+    /// See Example in [AsyncTargetExecutor::start]
     fn from(pieces: (T, U, Duration)) -> AsyncTarget<'a> {
         let (target, check_handler, check_interval) = pieces;
         AsyncTarget::new(Box::from(target), Box::from(check_handler), check_interval)
     }
 }
 
+/// Async target check executor used to check the availability of a given number of [AsyncTarget]s.
 pub struct AsyncTargetExecutor {
+    /// Optional threadhandle and synchronization channel to executing runtime.
     worker: Option<(JoinHandle<()>, Sender<()>)>,
 }
 
 impl AsyncTargetExecutor {
+    /// Construct a new [AsyncTargetExecutor]
     pub fn new() -> Self {
         AsyncTargetExecutor {
             worker: None,
         }
     }
 
+    /// Start periodic availability checks for all given targets
+    ///
+    /// Each targets execution behavior is configured during [AsyncTarget] construction.
+    ///
+    /// # Arguments
+    /// * targets: a vector of [AsyncTarget]s, those availability should be check periodically.
+    ///
+    /// # Example
+    /// ```
+    /// # use std::{str::FromStr, thread::sleep, time::Duration};
+    /// # use reachable::*;
+    ///
+    /// // Setup AsyncTarget
+    /// let target = IcmpTarget::from_str("127.0.0.1").unwrap();
+    /// let check_handler = |_: &dyn Target, _: Status, _: OldStatus, _: Option<CheckTargetError>| {
+    ///    // Handle check results
+    /// };
+    /// let check_interval = Duration::from_secs(1);
+    /// let async_target = AsyncTarget::from((target, check_handler, check_interval));
+    ///
+    /// // Setup AsyncTargetExecutor and let it run for 1s
+    /// let mut exec = AsyncTargetExecutor::new();
+    /// exec.start(vec![async_target]);
+    /// sleep(Duration::from_secs(1));
+    /// exec.stop();
+    /// ```
     pub fn start(&mut self, targets: Vec<AsyncTarget<'static>>) {
         if self.worker.is_none() {
             // Setup teardown mechanism and construct runtime
@@ -92,6 +142,7 @@ impl AsyncTargetExecutor {
         }
     }
 
+    /// Stop asynchronous processing started with [AsyncTargetExecutor::start] gracefully.
     pub fn stop(&mut self) {
         if let Some((handle, teardown_send)) = self.worker.take() {
             // Signal all async tasks to terminate and wait until runtime thread stopped.
