@@ -4,7 +4,6 @@ use std::time::Duration;
 
 use reachable::*;
 
-#[cfg(feature = "async")]
 fn main() {
     // Setup AsyncTargets
     let icmp_target = IcmpTarget::from_str("www.google.de").unwrap();

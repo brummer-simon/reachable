@@ -2,7 +2,7 @@ use std::net::IpAddr;
 
 use dns_lookup::lookup_host;
 
-use crate::ResolveTargetError;
+use super::ResolveTargetError;
 
 #[derive(PartialEq, Debug)]
 pub enum ResolvePolicy {

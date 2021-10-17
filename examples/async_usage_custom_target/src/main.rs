@@ -16,7 +16,6 @@ impl Target for MyTarget {
     }
 }
 
-#[cfg(feature = "async")]
 fn main() {
     // Setup custom Target for async availability check execution
     let my_target = MyTarget {};

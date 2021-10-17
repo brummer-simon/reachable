@@ -9,8 +9,7 @@ use std::time::Duration;
 #[cfg(test)]
 use mockall::automock;
 
-use crate::ResolvePolicy;
-use crate::{CheckTargetError, ParseTargetError};
+use super::{CheckTargetError, ParseTargetError, ResolvePolicy};
 
 // Constants
 const DEFAULT_CONNECTION_TIMEOUT: Duration = Duration::from_secs(5);

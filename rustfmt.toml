@@ -1,5 +1,18 @@
-edition = "2018"
+# General formatting
 max_width = 120
+empty_item_single_line = false
+struct_lit_single_line = false
+
+# Comment related
+comment_width = 120
+wrap_comments = true
+normalize_comments = true
+
+# Import related
 reorder_imports = true
 group_imports = "StdExternalCrate"
-struct_lit_single_line = false
+imports_granularity = "Module"
+
+# Warning related
+report_fixme = "Always"
+report_todo = "Always"
