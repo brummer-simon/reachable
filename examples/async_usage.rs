@@ -20,14 +20,12 @@ fn main() {
         }
     };
 
-    let targets = vec![
-        AsyncTarget::from((icmp_target, handler, Duration::from_secs(1))),
-        AsyncTarget::from((tcp_target, handler, Duration::from_secs(1))),
-    ];
-
     // Spawn Async executor
     let mut exec = AsyncTargetExecutor::new();
-    exec.start(targets);
+    exec.start(vec![
+        AsyncTarget::from((icmp_target, handler, Duration::from_secs(1))),
+        AsyncTarget::from((tcp_target, handler, Duration::from_secs(1))),
+    ]);
     sleep(Duration::from_secs(3));
     exec.stop();
 }
