@@ -6,8 +6,8 @@ an async task Executor to perform availability checks of "Targets" on a regular 
 
 ## Usage
 
-With this crate you easily check if a computer is currently reachable over the network.
-Since all targets are implementations of "Target" trait the entire behavior is customizable.
+With this crate you can easily check if a computer is currently reachable over the network.
+Since all targets are implementations of trait "Target" the entire behavior is customizable.
 For example, it is easy to implement a custom Target to check if a Process is
 running or not.
 
