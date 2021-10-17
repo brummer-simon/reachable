@@ -9,8 +9,6 @@ wrap_comments = true
 normalize_comments = true
 
 # Import related
-reorder_imports = true
-group_imports = "StdExternalCrate"
 imports_granularity = "Module"
 
 # Warning related

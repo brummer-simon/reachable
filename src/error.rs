@@ -4,21 +4,29 @@
 //
 // Author: Simon Brummer (simon.brummer@posteo.de)
 
+//! Module containing all custom error types. All type shall implement [Error].
+
+// Imports
 use std::error::Error;
 use std::fmt::{self};
 use std::io::{self};
 use std::num::{self};
 
-type ErrorMessage = &'static str;
+// Documentation imports
+#[cfg(doc)]
+use super::Target;
 
-// ParseTargetError
+/// Alias for preallocated error messages
+pub type ErrorMessage = &'static str;
+
+/// Custom error type for a failed attempt to parse something into a [Target].
 #[derive(Debug)]
 pub enum ParseTargetError {
     /// ParseTargetError containing a Message
     Message(ErrorMessage),
-    /// ParseTargetError containing a Message and a ParseIntError
+    /// ParseTargetError containing a Message and a [num::ParseIntError]
     ParseIntError(ErrorMessage, num::ParseIntError),
-    /// ParseTargetError containing a Message and a trait object implementing Error
+    /// ParseTargetError containing a Message and a trait object implementing [Error]
     GenericError(ErrorMessage, Box<dyn Error>),
 }
 
@@ -73,14 +81,14 @@ impl From<Box<dyn Error>> for ParseTargetError {
     }
 }
 
-// ResolveTargetError
+/// Custom error type for a failed attempt to resolve a [Target].
 #[derive(Debug)]
 pub enum ResolveTargetError {
     /// ResolveTargetError containing a Message
     Message(ErrorMessage),
-    /// ResolveTargetError containing a Message and an io::Error
+    /// ResolveTargetError containing a Message and an [io::Error]
     IoError(ErrorMessage, io::Error),
-    /// CheckTargetError containing a Message and a trait object implementing Error
+    /// ResolveTargetError containing a Message and a trait object implementing [Error]
     GenericError(ErrorMessage, Box<dyn Error>),
 }
 
@@ -141,14 +149,14 @@ impl From<Box<dyn Error>> for ResolveTargetError {
     }
 }
 
-// TargetCheckError
+/// Custom error type for a failed attempt to check the availability of a [Target].
 #[derive(Debug)]
 pub enum CheckTargetError {
     /// CheckTargetError containing a Message
     Message(ErrorMessage),
-    /// CheckTargetError containing a Message and a ResolveTargetError
+    /// CheckTargetError containing a Message and a [ResolveTargetError]
     ResolveTargetError(ErrorMessage, ResolveTargetError),
-    /// CheckTargetError containing a Message and a trait object implementing Error
+    /// CheckTargetError containing a Message and a trait object implementing [Error]
     GenericError(ErrorMessage, Box<dyn Error>),
 }
 

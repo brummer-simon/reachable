@@ -4,6 +4,10 @@
 //
 // Author: Simon Brummer (simon.brummer@posteo.de)
 
+//! Module containing "Target" related functionality.
+
+// Imports
+use super::{CheckTargetError, ParseTargetError, ResolvePolicy};
 use std::convert::From;
 use std::fmt::{self};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6, TcpStream};
@@ -12,29 +16,68 @@ use std::process::{Command, Stdio};
 use std::str::FromStr;
 use std::time::Duration;
 
+// Test imports
 #[cfg(test)]
 use mockall::automock;
 
-use super::{CheckTargetError, ParseTargetError, ResolvePolicy};
+/// Default timeout duration for each connection attempt of a [TcpTarget]
+pub const DEFAULT_TCP_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
-// Constants
-const DEFAULT_CONNECTION_TIMEOUT: Duration = Duration::from_secs(5);
+/// Alias of String expressing a "fully qualified domain name"
+pub type Fqhn = String;
 
-// Target trait
+/// Alias of u16 expressing a port number
+pub type Port = u16;
+
+/// Trait specifying a Target that can be used to check if its available.
 #[cfg_attr(test, automock)]
 pub trait Target {
+    /// Get a Targets identifier.
+    ///
+    /// # Returns
+    /// A unique identifier of this Target.
+    ///
+    /// # Example
+    /// ```
+    /// # use std::str::FromStr;
+    /// # use reachable::{Target, IcmpTarget};
+    ///
+    /// assert_eq!(IcmpTarget::from_str("127.0.0.1").unwrap().get_id(), "127.0.0.1");
+    /// ```
     fn get_id(&self) -> String;
+
+    /// Check if a Target is currently available.
+    ///
+    /// # Returns
+    /// * On success, the current [Status] of this [Target].
+    /// * On failure, a [CheckTargetError]. This error should be returned in case some internal
+    ///   error occurred.
+    ///
+    /// # Notes
+    /// This method should be implemented in a non-blocking way to improve performance then used
+    /// from an async execution context.
+    ///
+    /// # Example
+    /// ```
+    /// # use std::str::FromStr;
+    /// # use reachable::{Status, Target, IcmpTarget};
+    ///
+    /// assert_eq!(
+    ///     IcmpTarget::from_str("127.0.0.1").unwrap().check_availability().unwrap(),
+    ///     Status::Available
+    /// );
+    /// ```
     fn check_availability(&self) -> Result<Status, CheckTargetError>;
 }
 
-// Status
+/// Current status of a [Target]
 #[derive(PartialEq, Debug, Clone)]
 pub enum Status {
-    /// Target availability is unknown
+    /// The state of a [Target] is unknown.
     Unknown,
-    /// Target is currently available
+    /// A [Target] is available
     Available,
-    /// Target is currently not available
+    /// A [Target] is not available
     NotAvailable,
 }
 
@@ -48,18 +91,32 @@ impl fmt::Display for Status {
     }
 }
 
-// Aliases
-pub type Fqhn = String;
-pub type Port = u16;
-
-// IcmpTarget
+/// Target to check if a system can be reached via ICMP.
+///
+/// # Notes
+/// IcmpTargets use the ping command to perform availability checks.
+/// Some administrator blackhole ICMP packets, leading to systems that look unavailable
+/// although they can be reached with a [TcpTarget].
 #[derive(Debug)]
 pub struct IcmpTarget {
+    /// [Fqhn] specifying a system to connect to.
     fqhn: Fqhn,
+    /// [ResolvePolicy] to apply during resolution of fqhn to IP addresses.
     resolve_policy: ResolvePolicy,
 }
 
 impl IcmpTarget {
+    /// Construct an [IcmpTarget].
+    ///
+    /// # Arguments
+    /// * fqhn: string containing "fully qualified domain name" e.g. "::1", "localhost".
+    /// * resolve_policy: the [ResolvePolicy] to use for this [Target].
+    ///
+    /// # Returns
+    /// Instance of [IcmpTarget].
+    ///
+    /// # Notes
+    /// For more convenience use the implementations of trait "From" and "FromStr".
     pub fn new(fqhn: Fqhn, resolve_policy: ResolvePolicy) -> Self {
         IcmpTarget {
             fqhn: fqhn,
@@ -67,15 +124,18 @@ impl IcmpTarget {
         }
     }
 
+    /// Set a new [ResolvePolicy] for name resolution.
     pub fn set_resolve_policy(mut self, resolve_policy: ResolvePolicy) -> Self {
         self.resolve_policy = resolve_policy;
         self
     }
 
+    /// Get a reference to the [Fqhn].
     pub fn get_fqhn(&self) -> &Fqhn {
         &self.fqhn
     }
 
+    /// Get a reference to the [ResolvePolicy] in use.
     pub fn get_resolve_policy(&self) -> &ResolvePolicy {
         &self.resolve_policy
     }
@@ -149,16 +209,43 @@ impl FromStr for IcmpTarget {
     }
 }
 
-// TcpTarget
+/// Target to check if a system can be reached via TCP.
+///
+/// # Notes
+/// TcpTargets use the blocking [TcpStream::connect_timeout] method to establish a
+/// connection. Depending on the remote system, this can take a while. If TcpTargets
+/// are used in an async context, try to speedup [Target::check_availability] by configuring a shorter
+/// connect_timeout.
+///
+/// TcpTargets on check_availability() to open a connection to the remote target and close
+/// it afterwards. This means that the service behind the target port, must be able to
+/// handle spontaneous connection closing.
 #[derive(Debug)]
 pub struct TcpTarget {
+    /// [Fqhn] specifying a system to connect to.
     fqhn: Fqhn,
+    /// [Port] specifying the TCP port to connect to.
     port: Port,
+    /// [Duration] used as connect_timeout
     connect_timeout: Duration,
+    /// [ResolvePolicy] to apply during resolution of fqhn to IP addresses.
     resolve_policy: ResolvePolicy,
 }
 
 impl TcpTarget {
+    /// Construct an [TcpTarget].
+    ///
+    /// # Arguments
+    /// * fqhn: string containing "fully qualified domain name" e.g. "::1", "localhost".
+    /// * port: port number to connect to.
+    /// * connect_timeout: [Duration] used as connection attempt timeout.
+    /// * resolve_policy: the [ResolvePolicy] to use for this [Target].
+    ///
+    /// # Returns
+    /// Instance of [TcpTarget].
+    ///
+    /// # Notes
+    /// For more convenience use the implementations of trait "From" and "FromStr".
     pub fn new(fqhn: Fqhn, port: Port, connect_timeout: Duration, resolve_policy: ResolvePolicy) -> Self {
         TcpTarget {
             fqhn: fqhn,
@@ -168,28 +255,35 @@ impl TcpTarget {
         }
     }
 
+    /// Set a new [ResolvePolicy] for name resolution.
     pub fn set_resolve_policy(mut self, resolve_policy: ResolvePolicy) -> Self {
         self.resolve_policy = resolve_policy;
         self
     }
 
+    /// Set a new connect_timeout [Duration] for [TcpStream::connect_timeout]
+    /// attempts used in [Target::check_availability].
     pub fn set_connect_timeout(mut self, connect_timeout: Duration) -> Self {
         self.connect_timeout = connect_timeout;
         self
     }
 
+    /// Get a reference to the [Fqhn].
     pub fn get_fqhn(&self) -> &Fqhn {
         &self.fqhn
     }
 
+    /// Get a reference to the TCP [Port] number in use.
     pub fn get_portnumber(&self) -> &Port {
         &self.port
     }
 
+    /// Get a reference to the connect_timeout [Duration] in use.
     pub fn get_connect_timeout(&self) -> &Duration {
         &self.connect_timeout
     }
 
+    /// Get a reference to the [ResolvePolicy] in use.
     pub fn get_resolve_policy(&self) -> &ResolvePolicy {
         &self.resolve_policy
     }
@@ -231,7 +325,7 @@ impl From<SocketAddr> for TcpTarget {
         TcpTarget::new(
             socket.ip().to_string(),
             socket.port(),
-            DEFAULT_CONNECTION_TIMEOUT,
+            DEFAULT_TCP_CONNECT_TIMEOUT,
             ResolvePolicy::Agnostic,
         )
     }
@@ -242,7 +336,7 @@ impl From<SocketAddrV4> for TcpTarget {
         TcpTarget::new(
             socket.ip().to_string(),
             socket.port(),
-            DEFAULT_CONNECTION_TIMEOUT,
+            DEFAULT_TCP_CONNECT_TIMEOUT,
             ResolvePolicy::ResolveToIPv4,
         )
     }
@@ -253,7 +347,7 @@ impl From<SocketAddrV6> for TcpTarget {
         TcpTarget::new(
             socket.ip().to_string(),
             socket.port(),
-            DEFAULT_CONNECTION_TIMEOUT,
+            DEFAULT_TCP_CONNECT_TIMEOUT,
             ResolvePolicy::ResolveToIPv6,
         )
     }
@@ -300,7 +394,7 @@ impl FromStr for TcpTarget {
                         Ok(TcpTarget::new(
                             fqhn,
                             port,
-                            DEFAULT_CONNECTION_TIMEOUT,
+                            DEFAULT_TCP_CONNECT_TIMEOUT,
                             ResolvePolicy::Agnostic,
                         ))
                     }
@@ -379,7 +473,8 @@ mod tests {
         let status = target.check_availability();
         assert_eq!(
             format!("{}", status.unwrap_err()),
-            "ResolveTargetError caused by: IoError caused by: failed to lookup address information: Name or service not known"
+            "ResolveTargetError caused by: IoError caused by: failed to lookup \
+             address information: Name or service not known"
         );
     }
 
