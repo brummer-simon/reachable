@@ -4,7 +4,9 @@ use std::time::Duration;
 use futures::future::{join, join_all, BoxFuture, FutureExt};
 use tokio::runtime::{self};
 use tokio::select;
-use tokio::sync::watch::{self, Receiver, Sender};
+use tokio::sync::watch::{
+    Receiver, Sender, {self},
+};
 use tokio::task::{self};
 use tokio::time::{self};
 

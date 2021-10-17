@@ -15,3 +15,10 @@ mockall = {version = "0.10.2"}
 [features]
 default = ["async"]
 async   = ["futures", "tokio"]
+
+[workspace]
+members = [
+    "examples/usage",
+    "examples/async_usage",
+    "examples/async_usage_custom_target",
+]
