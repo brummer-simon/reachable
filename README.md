@@ -2,16 +2,33 @@
 
 Rust crate to check if a "Target" is available. The crate comes with the trait
 "Target" and ICMP/TCP based implementations of it. Additionally, the crate offers
-an async task Executor to perform availability checks of "Targets" on a regular basis.
+an async task executor to perform availability checks of "Targets" on a regular basis.
 
 ## Usage
 
 With this crate you can easily check if a computer is currently reachable over the network.
-Since all targets are implementations of trait "Target" the entire behavior is customizable.
+Since all targets are implementations of trait "Target" the availabilty check behavior is customizable.
 For example, it is easy to implement a custom Target to check if a Process is
 running or not.
 
-## Example (from examples/async_usage/src/main.rs)
+## Example (from examples/usage/src/main.rs)
+
+```rust
+use std::str::FromStr;
+
+use reachable::*;
+
+fn main() {
+    // Construct ICMP Target and if its availabile
+    let icmp_target = IcmpTarget::from_str("www.google.de").unwrap();
+    match icmp_target.check_availability() {
+        Ok(status) => println!("{} is {}", icmp_target.get_id(), status),
+        Err(error) => println!("Check failed for {} reason {}", icmp_target.get_id(), error),
+    }
+}
+```
+
+## Async Example (from examples/async_usage/src/main.rs)
 
 ```rust
 use std::str::FromStr;
@@ -35,7 +52,7 @@ fn main() {
         }
     };
 
-    // Spawn Async executor
+    // Spawn Async execution
     let mut exec = AsyncTargetExecutor::new();
     exec.start(vec![
         AsyncTarget::from((icmp_target, handler, Duration::from_secs(1))),
