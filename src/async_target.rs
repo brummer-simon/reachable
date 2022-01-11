@@ -24,10 +24,10 @@ use tokio::time::{self};
 pub type OldStatus = Status;
 
 /// Type for a boxed trait object implementing [Target]
-type BoxedTarget<'a> = Box<dyn Target + Send + 'a>;
+pub type BoxedTarget<'a> = Box<dyn Target + Send + 'a>;
 
 /// Type containing a boxed trait object implementing [FnMut] that is called with each async check.
-type BoxedHandler<'a> = Box<dyn FnMut(&dyn Target, Status, OldStatus, Option<CheckTargetError>) + Send + 'a>;
+pub type BoxedHandler<'a> = Box<dyn FnMut(&dyn Target, Status, OldStatus, Option<CheckTargetError>) + Send + 'a>;
 
 /// Struct storing all data used during asynchronous execution.
 ///
