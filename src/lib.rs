@@ -27,4 +27,4 @@ pub use resolve_policy::ResolvePolicy;
 pub use target::{Fqhn, IcmpTarget, Port, Status, Target, TcpTarget};
 
 #[cfg(feature = "async")]
-pub use async_target::{AsyncTarget, AsyncTargetExecutor, OldStatus};
+pub use async_target::{AsyncTarget, AsyncTargetExecutor, BoxedHandler, BoxedTarget, OldStatus};
