@@ -50,8 +50,7 @@ pub trait Target {
     ///
     /// # Returns
     /// * On success, the current [Status] of this [Target].
-    /// * On failure, a [CheckTargetError]. This error should be returned in case some internal
-    ///   error occurred.
+    /// * On failure, a [CheckTargetError]. This error should be returned in case some internal error occurred.
     ///
     /// # Notes
     /// This method should be implemented in a non-blocking way to improve performance then used
@@ -119,8 +118,8 @@ impl IcmpTarget {
     /// For more convenience use the implementations of trait "From" and "FromStr".
     pub fn new(fqhn: Fqhn, resolve_policy: ResolvePolicy) -> Self {
         IcmpTarget {
-            fqhn: fqhn,
-            resolve_policy: resolve_policy,
+            fqhn,
+            resolve_policy,
         }
     }
 
@@ -248,10 +247,10 @@ impl TcpTarget {
     /// For more convenience use the implementations of trait "From" and "FromStr".
     pub fn new(fqhn: Fqhn, port: Port, connect_timeout: Duration, resolve_policy: ResolvePolicy) -> Self {
         TcpTarget {
-            fqhn: fqhn,
-            port: port,
-            connect_timeout: connect_timeout,
-            resolve_policy: resolve_policy,
+            fqhn,
+            port,
+            connect_timeout,
+            resolve_policy,
         }
     }
 
@@ -300,16 +299,12 @@ impl Target for TcpTarget {
         // Network services should be able to deal with this behavior.
 
         // Resolve and construct address/port pairs
-        let addrs = self.resolve_policy.resolve(&self.fqhn)?;
-        let sock_addrs: Vec<SocketAddr> = addrs
-            .into_iter()
-            .map(|addr| SocketAddr::from((addr, self.port)))
-            .collect();
-
         // Try for each address/port pair to establish a connection.
         // Occurring errors are treated as a sign of target is not available.
-        let available = sock_addrs
+        let addrs = self.resolve_policy.resolve(&self.fqhn)?;
+        let available = addrs
             .into_iter()
+            .map(|addr| SocketAddr::from((addr, self.port)))
             .any(|addr| TcpStream::connect_timeout(&addr, self.connect_timeout).is_ok());
 
         if available {
@@ -388,8 +383,8 @@ impl FromStr for TcpTarget {
             let maybe_port = &s[index + 1..];
             match maybe_port.parse() as Result<u16, ParseIntError> {
                 Ok(port) => {
-                    if port <= 0 {
-                        Err(ParseTargetError::from("Invalid Portnumber 0 found"))
+                    if port == 0 {
+                        Err(ParseTargetError::from("Invalid Portnumber '0' found"))
                     } else {
                         Ok(TcpTarget::new(
                             fqhn,
@@ -607,7 +602,7 @@ mod tests {
         // Expectency: The TcpTarget returns an error if portnumber is 0 (invalid port).
         assert_eq!(
             format!("{}", TcpTarget::from_str("foo:0").unwrap_err()),
-            "Invalid Portnumber 0 found"
+            "Invalid Portnumber '0' found"
         );
     }
 
