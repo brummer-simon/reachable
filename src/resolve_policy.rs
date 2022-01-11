@@ -37,8 +37,8 @@ impl ResolvePolicy {
     ///
     /// # Returns
     /// * On success, vector containing all ip addresses the fqhn resolved to.
-    /// * On failure, a [ResolveTargetError]. Either failed the name resolution itself or all
-    ///   addresses were filtered out according to [ResolvePolicy].
+    /// * On failure, a [ResolveTargetError]. Either failed the name resolution itself or all addresses were filtered
+    ///   out according to [ResolvePolicy].
     ///
     /// # Example
     /// ```

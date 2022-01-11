@@ -1,6 +1,6 @@
 [package]
 name = "reachable"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 authors = ["Simon Brummer <simon.brummer@posteo.de>"]
 description = "Check if a Target (ICMP, TCP, custom) is reachable."

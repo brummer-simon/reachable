@@ -23,13 +23,19 @@ use tokio::time::{self};
 /// check and the current availability check
 pub type OldStatus = Status;
 
+/// Type for a boxed trait object implementing [Target]
+type BoxedTarget<'a> = Box<dyn Target + Send + 'a>;
+
+/// Type containing a boxed trait object implementing [FnMut] that is called with each async check.
+type BoxedHandler<'a> = Box<dyn FnMut(&dyn Target, Status, OldStatus, Option<CheckTargetError>) + Send + 'a>;
+
 /// Struct storing all data used during asynchronous execution.
 ///
 /// For async check execution, wrap the instances of [Target] in [AsyncTarget] and hand them to
 /// [AsyncTargetExecutor::start].
 pub struct AsyncTarget<'a> {
-    target: Box<dyn Target + Send + 'a>,
-    check_handler: Box<dyn FnMut(&dyn Target, Status, OldStatus, Option<CheckTargetError>) + Send + 'a>,
+    target: BoxedTarget<'a>,
+    check_handler: BoxedHandler<'a>,
     check_interval: Duration,
     status: Status,
 }
@@ -44,15 +50,11 @@ impl<'a> AsyncTarget<'a> {
     ///
     /// # Returns
     /// Instance of [AsyncTarget].
-    pub fn new(
-        target: Box<dyn Target + Send + 'a>,
-        check_handler: Box<dyn FnMut(&dyn Target, Status, OldStatus, Option<CheckTargetError>) + Send + 'a>,
-        check_interval: Duration,
-    ) -> Self {
+    pub fn new(target: BoxedTarget<'a>, check_handler: BoxedHandler<'a>, check_interval: Duration) -> Self {
         AsyncTarget {
-            target: target,
-            check_handler: check_handler,
-            check_interval: check_interval,
+            target,
+            check_handler,
+            check_interval,
             status: Status::Unknown,
         }
     }
@@ -152,13 +154,19 @@ impl AsyncTargetExecutor {
     }
 }
 
+impl Default for AsyncTargetExecutor {
+    fn default() -> Self {
+        AsyncTargetExecutor::new()
+    }
+}
+
 impl Drop for AsyncTargetExecutor {
     fn drop(&mut self) {
         self.stop()
     }
 }
 
-async fn check_target_periodically(mut target: AsyncTarget<'static>, mut teardown_recv: Receiver<()>) -> () {
+async fn check_target_periodically(mut target: AsyncTarget<'static>, mut teardown_recv: Receiver<()>) {
     loop {
         target = select! {
             // Teardown message was not received. Perform next check.
@@ -170,7 +178,7 @@ async fn check_target_periodically(mut target: AsyncTarget<'static>, mut teardow
     }
 }
 
-async fn check_target(mut target: AsyncTarget<'static>) -> AsyncTarget<'_> {
+async fn check_target(mut target: AsyncTarget<'static>) -> AsyncTarget<'static> {
     // Setup sleep timer to wait, to prevent further execution before the check_interval elapsed.
     let sleep = time::sleep(target.check_interval);
 

@@ -7,7 +7,7 @@ an async task executor to perform availability checks of "Targets" on a regular 
 ## Usage
 
 With this crate you can easily check if a computer is currently reachable over the network.
-Since all targets are implementations of trait "Target" the availabilty check behavior is customizable.
+Since all targets are implementations of trait "Target" the availability check behavior is customizable.
 For example, it is easy to implement a custom Target to check if a Process is
 running or not.
 
@@ -19,7 +19,7 @@ use std::str::FromStr;
 use reachable::*;
 
 fn main() {
-    // Construct ICMP Target and if its availabile
+    // Construct ICMP Target check if the target is availabile
     let icmp_target = IcmpTarget::from_str("www.google.de").unwrap();
     match icmp_target.check_availability() {
         Ok(status) => println!("{} is {}", icmp_target.get_id(), status),
