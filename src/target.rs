@@ -150,10 +150,9 @@ impl Target for IcmpTarget {
         // Using ping seems to be the easiest way to send ICMP packets without root privileges
         let available_via_ping = |addr: IpAddr| {
             if addr.is_ipv6() {
-                Command::new("ping")
+                Command::new("ping6")
                     .stdout(Stdio::null())
                     .arg("-c 1")
-                    .arg("-6")
                     .arg(addr.to_string())
                     .status()
                     .unwrap()
